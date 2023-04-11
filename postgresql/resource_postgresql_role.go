@@ -261,10 +261,19 @@ func resourcePostgreSQLRoleCreate(db *DBConnection, d *schema.ResourceData) erro
 		createOpts = append(createOpts, fmt.Sprintf("%s %d", opt.sqlKey, val))
 	}
 
+	superuser, err := db.isSuperuser()
+	if err != nil {
+		return err
+	}
+
 	for _, opt := range boolOpts {
 		if opt.hclKey == roleEncryptedPassAttr {
 			// This attribute is handled above in the stringOpts
 			// loop.
+			continue
+		}
+		if opt.hclKey == roleSuperuserAttr && !superuser {
+			log.Print("[WARN] current role is not super user to change rolsuper attribute, skip")
 			continue
 		}
 		val := d.Get(opt.hclKey).(bool)
@@ -286,9 +295,19 @@ func resourcePostgreSQLRoleCreate(db *DBConnection, d *schema.ResourceData) erro
 		}
 	}
 
-	sql := fmt.Sprintf("CREATE ROLE %s%s", pq.QuoteIdentifier(roleName), createStr)
+	roleCount := 0
+	if err := txn.QueryRow(`SELECT COUNT(*) FROM pg_catalog.pg_roles WHERE rolname=$1`, roleName).Scan(&roleCount); err != nil {
+		return err
+	}
+
+	var sql string
+	if roleCount == 0 {
+		sql = fmt.Sprintf("CREATE ROLE %s%s", pq.QuoteIdentifier(roleName), createStr)
+	} else {
+		sql = fmt.Sprintf("ALTER ROLE %s%s", pq.QuoteIdentifier(roleName), createStr)
+	}
 	if _, err := txn.Exec(sql); err != nil {
-		return fmt.Errorf("error creating role %s: %w", roleName, err)
+		return fmt.Errorf("error upserting role %s: %w", roleName, err)
 	}
 
 	if err = grantRoles(txn, d); err != nil {

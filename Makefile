@@ -1,11 +1,16 @@
 TEST?=$$(go list ./...)
 GOFMT_FILES?=$$(find . -name '*.go')
-PKG_NAME=postgresql
+HOSTNAME=terraform.local
+NAMESPACE=bytebase
+NAME=postgresql
+BINARY=terraform-provider-${NAME}
+VERSION=${shell cat ./VERSION}
+OS_ARCH=darwin_amd64
 
-default: build
+default: install
 
 build: fmtcheck
-	go install
+	go build -o ${BINARY}
 
 test: fmtcheck
 	go test -i $(TEST) || exit 1
@@ -38,3 +43,9 @@ fmtcheck:
 
 .PHONY: build test testacc vet fmt fmtcheck
 
+install: build
+	mkdir -p ~/.terraform.d/plugins/${HOSTNAME}/${NAMESPACE}/${NAME}/${VERSION}/${OS_ARCH}
+	mv ${BINARY} ~/.terraform.d/plugins/${HOSTNAME}/${NAMESPACE}/${NAME}/${VERSION}/${OS_ARCH}
+
+release:
+	goreleaser release --rm-dist --snapshot --skip-publish  --skip-sign
